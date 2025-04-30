@@ -1,1 +1,38 @@
-[]
+[
+  {
+    "rise_prob": 5.778155475854874,
+    "fall_prob": 94.22184228897095,
+    "ticker": "600418.SS",
+    "close_price": 35.77000045776367,
+    "date": "2025-04-30",
+    "model": "Pipeline",
+    "features": {
+      "MACD_hist": 0.3489260889669746,
+      "RSI": 59.167417057029624,
+      "Volume_change": -0.29787807258305166,
+      "3_day_ma": 35.473333994547524,
+      "10_day_ma": 34.40500030517578,
+      "MACD_Cross": 1.0,
+      "BB_Width": 0.1923805200490805,
+      "Close_vs_BB_Upper": -0.036134132170351,
+      "Close_vs_BB_Lower": 0.16902964147482002,
+      "WILLR": -10.707480269158546,
+      "CCI": 98.42973428591557,
+      "Volatility": 0.1309062426877543,
+      "Volume_Price_Corr": 0.577593027074367,
+      "Price_Dispersion": 0.06234383836721574,
+      "MA_Slope": 0.29120018005371096,
+      "MACD_RSI_Combined": 20.64505542798721,
+      "BB_Volume_Interaction": -0.05730593851474522,
+      "Momentum_ATR_Ratio": 1.5031616983876288,
+      "3D_Return_Volatility": 0.011908332162102912,
+      "5D_Return_Volatility": 0.010508283516661932,
+      "ATR_5MA": 1.4142666931627224,
+      "OBV_3MA": 27875369.333333332,
+      "Close_lag_1": 35.75,
+      "Close_lag_2": 34.900001525878906,
+      "Close_lag_3": 34.5,
+      "News_Sentiment": 0.18989898989898987
+    }
+  }
+]

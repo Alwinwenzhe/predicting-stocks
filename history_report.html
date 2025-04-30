@@ -1,0 +1,149 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>历史预测报告 - 600418.SS</title>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    margin: 2rem;
+                    background: #f5f6fa;
+                }
+                .container {
+                    max-width: 800px;
+                    margin: 0 auto;
+                }
+                .header {
+                    background: linear-gradient(45deg, #3498db, #2c3e50);
+                    color: white;
+                    padding: 2rem;
+                    border-radius: 10px;
+                    margin-bottom: 2rem;
+                    text-align: center;
+                }
+                .record-card {
+                    background: white;
+                    border-radius: 10px;
+                    padding: 1.5rem;
+                    margin-bottom: 1rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    transition: transform 0.3s ease;
+                }
+                .record-card:hover {
+                    transform: translateY(-2px);
+                }
+                .nav-buttons {
+                    display: flex;
+                    justify-content: center;
+                    gap: 1rem;
+                    margin: 2rem 0;
+                }
+                .nav-button {
+                    padding: 0.8rem 1.5rem;
+                    border: none;
+                    border-radius: 5px;
+                    background: #3498db;
+                    color: white;
+                    cursor: pointer;
+                    transition: background 0.3s ease;
+                }
+                .nav-button:hover {
+                    background: #2980b9;
+                }
+                .hidden { display: none; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>600418.SS 历史预测记录</h1>
+                    <p>共 1 条记录</p>
+                </div>
+
+                <div id="records-container">
+                    <!-- 动态插入记录卡片 -->
+                </div>
+
+                <div class="nav-buttons">
+                    <button class="nav-button" onclick="prevRecord()">上一页</button>
+                    <button class="nav-button" onclick="nextRecord()">下一页</button>
+                </div>
+            </div>
+
+            <script>
+                // 历史记录数据
+                const allRecords = [
+                    {
+            date: '2025-04-30',
+            close_price: 35.77000045776367,
+            rise_prob: 5.778155475854874,
+            fall_prob: 94.22184228897095,
+            actual: null,
+            is_correct: null
+        }
+                ];
+
+                let currentIndex = 0;
+                const recordsPerPage = 3;
+
+                function showRecords(startIndex) {
+                    const container = document.getElementById('records-container');
+                    container.innerHTML = '';
+                    
+                    const endIndex = Math.min(startIndex + recordsPerPage, allRecords.length);
+                    for(let i=startIndex; i<endIndex; i++) {
+                        container.innerHTML += `
+                            <div class="record-card">
+                                <h3>${allRecords[i].date}</h3>
+                                <p>收盘价: ${allRecords[i].close_price.toFixed(2)}</p>
+                                <p>预测结果: ${allRecords[i].rise_prob.toFixed(1)}% 上涨 / 
+                                   ${allRecords[i].fall_prob.toFixed(1)}% 下跌</p>
+                                <p>实际结果: ${allRecords[i].actual ? allRecords[i].actual.toFixed(2) : '待更新'}</p>
+                                <p>准确状态: ${getStatusText(allRecords[i].is_correct)}</p>
+                            </div>
+                        `;
+                    }
+                }
+
+                function getStatusText(status) {
+                    if(status === null) return '待验证';
+                    return status ? '预测正确 ✅' : '预测错误 ❌';
+                }
+
+                function nextRecord() {
+                    currentIndex = Math.min(currentIndex + recordsPerPage, allRecords.length - 1);
+                    showRecords(currentIndex);
+                }
+
+                function prevRecord() {
+                    currentIndex = Math.max(currentIndex - recordsPerPage, 0);
+                    showRecords(currentIndex);
+                }
+
+                // 初始化显示
+                showRecords(0);
+
+                // 添加键盘导航
+                document.addEventListener('keydown', (e) => {
+                    if(e.key === 'ArrowLeft') prevRecord();
+                    if(e.key === 'ArrowRight') nextRecord();
+                });
+
+                // 添加触屏滑动支持
+                let touchStartX = 0;
+                document.addEventListener('touchstart', e => {
+                    touchStartX = e.changedTouches[0].screenX;
+                });
+
+                document.addEventListener('touchend', e => {
+                    const touchEndX = e.changedTouches[0].screenX;
+                    const diffX = touchStartX - touchEndX;
+                    if(Math.abs(diffX) > 50) {
+                        if(diffX > 0) nextRecord();
+                        else prevRecord();
+                    }
+                });
+            </script>
+        </body>
+        </html>
+        

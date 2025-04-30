@@ -23,7 +23,7 @@ from plotly.subplots import make_subplots
 import webbrowser
 
 class StockPredictor:
-    def __init__(self, ticker, start_date='2022-01-01', end_date='2023-12-31', model_path=None):
+    def __init__(self, ticker, start_date='2025-01-01', end_date='2025-4-29', model_path=None):
         self.ticker = ticker
         self.start_date = start_date
         self.end_date = end_date
@@ -36,25 +36,45 @@ class StockPredictor:
         else:
             self.model = RandomForestClassifier(n_estimators=100, random_state=42)
             
-        self.history_file = "prediction_history.json"
-        self.history_predictions = self._load_history()  # 初始化时加载历史记录
+        self.history_file = os.path.abspath("prediction_history.json")  # 使用绝对路径
+        self.history_predictions = []
         
-        # 如果历史文件不存在则初始化示例数据
-        if not os.path.exists(self.history_file):
-            # 添加初始示例记录
-            self.history_predictions = [{
-                'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+        # 强制初始化历史文件
+        try:
+            self.history_predictions = self._load_history()
+            print(f"成功加载历史记录，共{len(self.history_predictions)}条")
+        except Exception as e:
+            print(f"加载历史记录失败，将创建新文件: {str(e)}")
+            self.history_predictions = []
+            
+        # 无论是否加载成功都尝试保存初始记录
+        if not self.history_predictions:
+            # 创建包含完整结构的示例记录
+            sample_record = {
+                'date': datetime.datetime.now().astimezone().strftime('%Y-%m-%d'),  # 添加时区信息
                 'rise_prob': 50.0,
                 'fall_prob': 50.0,
                 'ticker': self.ticker,
-                'close_price': self.data['Close'].iloc[-1] if not self.data.empty else 0.0,
+                'close_price': float(self.data['Close'].iloc[-1]) if not self.data.empty else 0.0,
                 'model': 'Initial',
                 'actual': None,
                 'is_correct': None,
-                'features': {k: 0.0 for k in self.features.columns if k != 'Target'}
-            }]
+                'features': {k: 0.0 for k in (self.features.columns if not self.features.empty else []) if k != 'Target'}
+            }
+            
+            # 转换numpy类型为Python原生类型
+            for key in sample_record:
+                if isinstance(sample_record[key], (np.integer, np.floating)):
+                    sample_record[key] = float(sample_record[key])
+                elif isinstance(sample_record[key], pd.Timestamp):
+                    sample_record[key] = sample_record[key].strftime('%Y-%m-%d')
+            
+            self.history_predictions = [sample_record]
+            print("正在创建初始历史记录...")
             self._save_history()
-            print("初始化创建历史记录文件并添加示例数据")
+            print(f"历史文件位置: {self.history_file}")
+            print(f"文件存在: {os.path.exists(self.history_file)}")
+            print(f"文件权限: {'可写' if os.access(os.path.dirname(self.history_file), os.W_OK) else '不可写'}")
         
     def _get_historical_data(self):
         """获取历史股价数据"""
@@ -216,34 +236,75 @@ class StockPredictor:
     def _save_history(self):
         """保存历史预测记录到文件"""
         try:
-            # 转换日期格式为字符串
+            # 创建副本避免修改原始数据
+            save_data = []
             for record in self.history_predictions:
-                if 'date' in record:
-                    if isinstance(record['date'], datetime.datetime):
-                        record['date'] = record['date'].strftime('%Y-%m-%d')
-                    elif isinstance(record['date'], dict):  # 处理可能的序列化残留
-                        record['date'] = datetime.datetime(**record['date']).strftime('%Y-%m-%d')
+                # 深拷贝记录并处理日期格式
+                new_record = record.copy()
+                if 'date' in new_record:
+                    if isinstance(new_record['date'], datetime.datetime):
+                        new_record['date'] = new_record['date'].strftime('%Y-%m-%d')
+                    elif isinstance(new_record['date'], dict):  # 处理可能的序列化残留
+                        new_record['date'] = datetime.datetime(**new_record['date']).strftime('%Y-%m-%d')
+                
+                # 确保所有数据可JSON序列化
+                for key, value in new_record.items():
+                    # 转换numpy类型
+                    if isinstance(value, (np.integer, np.floating)):
+                        new_record[key] = float(value)
+                    elif isinstance(value, np.ndarray):
+                        new_record[key] = value.tolist()
+                    # 转换pandas类型
+                    elif isinstance(value, (pd.Timestamp, pd.Timedelta)):
+                        new_record[key] = str(value)
+                    # 处理嵌套字典中的非字符串key
+                    elif isinstance(value, dict):
+                        new_record[key] = {str(k): v for k, v in value.items()}
+                
+                # 移除可能存在的None值
+                new_record = {k: v for k, v in new_record.items() if v is not None}
+                save_data.append(new_record)
 
-            # 简化保存流程
-            with open(self.history_file, 'w', encoding='utf-8') as f:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            
+            # 使用原子写入方式防止数据损坏
+            temp_file = self.history_file + ".tmp"
+            with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(
-                    self.history_predictions,
+                    save_data,
                     f,
                     indent=2,
                     ensure_ascii=False,
-                    default=lambda o: o.isoformat() if isinstance(o, datetime.datetime) else str(o)
+                    default=lambda o: o.isoformat() if isinstance(o, datetime.datetime) else str(o),
+                    allow_nan=False  # 禁止NaN值
                 )
             
-            print(f"成功保存 {len(self.history_predictions)} 条记录到 {os.path.abspath(self.history_file)}")
+            # 替换原文件
+            if os.path.exists(temp_file):
+                os.replace(temp_file, self.history_file)
+            
+            print(f"成功保存 {len(save_data)} 条记录到 {os.path.abspath(self.history_file)}")
 
         except Exception as e:
             print(f"保存失败: {str(e)}")
-            # 确保至少保存空列表
+            print("尝试保存的数据内容：")
+            print(json.dumps(save_data, indent=2, ensure_ascii=False, default=str))
+            print("无法保存的预测记录路径：", os.path.abspath(self.history_file))
+            print("故障排除建议：")
+            print("1. 检查文件路径是否有效且有写入权限")
+            print("2. 验证JSON数据是否包含非标准类型")
+            print("3. 确认磁盘有足够剩余空间")
+            print("4. 检查防病毒软件是否阻止文件操作")
+            
+            # 尝试创建备份文件
+            backup_file = self.history_file + ".bak"
             try:
-                with open(self.history_file, 'w', encoding='utf-8') as f:
-                    json.dump([], f)
-            except:
-                pass
+                with open(backup_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.history_predictions, f, default=str)
+                print(f"已创建备份文件: {os.path.abspath(backup_file)}")
+            except Exception as backup_e:
+                print("创建备份文件失败:", str(backup_e))
 
     def update_actual_prices(self):
         """更新最近预测的实际结果"""
@@ -402,21 +463,43 @@ class StockPredictor:
         
         proba = self.best_model.predict_proba(latest_features)[0]
         
-        # 记录预测结果
+        # 记录预测结果（包含完整特征数据）
         prediction = {
             'rise_prob': proba[1] * 100,
             'fall_prob': proba[0] * 100,
             'ticker': self.ticker,
             'close_price': self.data['Close'].iloc[-1],
-            'date': self.data.index[-1].strftime('%Y-%m-%d'),
+            'date': self._get_prediction_date(),
             'model': type(self.best_model).__name__,
-            'actual': None  # 次日更新实际结果
+            'actual': None,  # 次日更新实际结果
+            'is_correct': None,
+            'features': {k: v.item() if isinstance(v, np.generic) else v for k, v in raw_features.iloc[-1].items()}  # 转换numpy类型为Python原生类型
         }
         
-        # 保存历史预测
-        if len(self.history_predictions) >= 30:  # 保留最近30天记录
-            self.history_predictions.pop(0)
-        self.history_predictions.append(prediction)
+        # 严格检查所有记录中的日期
+        existing_index = next((i for i, p in enumerate(self.history_predictions) 
+                             if p['date'] == prediction['date']), -1)
+        
+        if existing_index != -1:
+            # 保留已存在的实际价格和验证结果
+            existing_actual = self.history_predictions[existing_index].get('actual')
+            existing_is_correct = self.history_predictions[existing_index].get('is_correct')
+            
+            # 替换现有记录
+            self.history_predictions[existing_index] = prediction
+            # 保留已有的实际价格和验证结果
+            if existing_actual is not None:
+                self.history_predictions[existing_index]['actual'] = existing_actual
+                self.history_predictions[existing_index]['is_correct'] = existing_is_correct
+        else:
+            # 添加新记录
+            self.history_predictions.append(prediction)
+        try:
+            self._save_history()
+            print(f"成功保存预测记录至 {os.path.abspath(self.history_file)}")
+        except Exception as e:
+            print(f"保存预测记录失败: {str(e)}")
+            print("建议操作: 1. 检查磁盘空间 2. 确认文件权限 3. 验证JSON数据格式")
         
         return prediction
 
@@ -461,6 +544,15 @@ class StockPredictor:
         
         return round(correct / len(self.history_predictions) * 100, 1) if self.history_predictions else 0
 
+    def _get_prediction_date(self):
+        """获取当前预测日期（最新交易日的次日）"""
+        last_date = pd.to_datetime(self.data.index[-1])
+        # 跳过周末
+        next_date = last_date + datetime.timedelta(days=1)
+        while next_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            next_date += datetime.timedelta(days=1)
+        return next_date.strftime('%Y-%m-%d')
+
     def _prepare_retraining_data(self):
         """准备再训练数据集"""
         # 从历史预测中提取特征
@@ -488,6 +580,8 @@ class StockPredictor:
 
     def generate_html_report(self, filename='stock_report.html'):
         """生成并保存可视化HTML报告"""
+        # 同时生成历史报告
+        self.generate_history_report('history_report.html')
         result = self.predict_probability()
         
         # 动态获取特征重要性/系数
@@ -664,7 +758,9 @@ class StockPredictor:
             <div class="metric-box">
                 <h3>历史记录存储位置</h3>
                 <p>文件路径: {os.path.abspath(self.history_file)}</p>
-                <p>记录条数: {len(self.history_predictions)}</p>
+                <p>记录条数: <a href="history_report.html" style="color: #3498db; text-decoration: underline; cursor: pointer;">
+                    {len(self.history_predictions)}（点击查看完整历史）
+                </a></p>
             </div>
             </div>
 
@@ -716,6 +812,175 @@ class StockPredictor:
             print(f"请手动打开文件：{abs_path}")
         
         return html_content
+
+    def generate_history_report(self, filename='history_report.html'):
+        """生成历史预测报告"""
+        if not self.history_predictions:
+            print("无历史记录可生成报告")
+            return
+
+        # 准备历史数据
+        history_data = reversed(self.history_predictions)  # 按时间倒序
+        
+        # HTML模板
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>历史预测报告 - {self.ticker}</title>
+            <style>
+                body {{ 
+                    font-family: Arial, sans-serif; 
+                    margin: 2rem;
+                    background: #f5f6fa;
+                }}
+                .container {{
+                    max-width: 800px;
+                    margin: 0 auto;
+                }}
+                .header {{
+                    background: linear-gradient(45deg, #3498db, #2c3e50);
+                    color: white;
+                    padding: 2rem;
+                    border-radius: 10px;
+                    margin-bottom: 2rem;
+                    text-align: center;
+                }}
+                .record-card {{
+                    background: white;
+                    border-radius: 10px;
+                    padding: 1.5rem;
+                    margin-bottom: 1rem;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    transition: transform 0.3s ease;
+                }}
+                .record-card:hover {{
+                    transform: translateY(-2px);
+                }}
+                .nav-buttons {{
+                    display: flex;
+                    justify-content: center;
+                    gap: 1rem;
+                    margin: 2rem 0;
+                }}
+                .nav-button {{
+                    padding: 0.8rem 1.5rem;
+                    border: none;
+                    border-radius: 5px;
+                    background: #3498db;
+                    color: white;
+                    cursor: pointer;
+                    transition: background 0.3s ease;
+                }}
+                .nav-button:hover {{
+                    background: #2980b9;
+                }}
+                .hidden {{ display: none; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>{self.ticker} 历史预测记录</h1>
+                    <p>共 {len(self.history_predictions)} 条记录</p>
+                </div>
+
+                <div id="records-container">
+                    <!-- 动态插入记录卡片 -->
+                </div>
+
+                <div class="nav-buttons">
+                    <button class="nav-button" onclick="prevRecord()">上一页</button>
+                    <button class="nav-button" onclick="nextRecord()">下一页</button>
+                </div>
+            </div>
+
+            <script>
+                // 历史记录数据
+                const allRecords = [
+                    {','.join([self._format_record_js(r) for r in history_data])}
+                ];
+
+                let currentIndex = 0;
+                const recordsPerPage = 3;
+
+                function showRecords(startIndex) {{
+                    const container = document.getElementById('records-container');
+                    container.innerHTML = '';
+                    
+                    const endIndex = Math.min(startIndex + recordsPerPage, allRecords.length);
+                    for(let i=startIndex; i<endIndex; i++) {{
+                        container.innerHTML += `
+                            <div class="record-card">
+                                <h3>${{allRecords[i].date}}</h3>
+                                <p>收盘价: ${{allRecords[i].close_price.toFixed(2)}}</p>
+                                <p>预测结果: ${{allRecords[i].rise_prob.toFixed(1)}}% 上涨 / 
+                                   ${{allRecords[i].fall_prob.toFixed(1)}}% 下跌</p>
+                                <p>实际结果: ${{allRecords[i].actual ? allRecords[i].actual.toFixed(2) : '待更新'}}</p>
+                                <p>准确状态: ${{getStatusText(allRecords[i].is_correct)}}</p>
+                            </div>
+                        `;
+                    }}
+                }}
+
+                function getStatusText(status) {{
+                    if(status === null) return '待验证';
+                    return status ? '预测正确 ✅' : '预测错误 ❌';
+                }}
+
+                function nextRecord() {{
+                    currentIndex = Math.min(currentIndex + recordsPerPage, allRecords.length - 1);
+                    showRecords(currentIndex);
+                }}
+
+                function prevRecord() {{
+                    currentIndex = Math.max(currentIndex - recordsPerPage, 0);
+                    showRecords(currentIndex);
+                }}
+
+                // 初始化显示
+                showRecords(0);
+
+                // 添加键盘导航
+                document.addEventListener('keydown', (e) => {{
+                    if(e.key === 'ArrowLeft') prevRecord();
+                    if(e.key === 'ArrowRight') nextRecord();
+                }});
+
+                // 添加触屏滑动支持
+                let touchStartX = 0;
+                document.addEventListener('touchstart', e => {{
+                    touchStartX = e.changedTouches[0].screenX;
+                }});
+
+                document.addEventListener('touchend', e => {{
+                    const touchEndX = e.changedTouches[0].screenX;
+                    const diffX = touchStartX - touchEndX;
+                    if(Math.abs(diffX) > 50) {{
+                        if(diffX > 0) nextRecord();
+                        else prevRecord();
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """
+        
+        # 保存文件
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"历史报告已生成: {os.path.abspath(filename)}")
+
+    def _format_record_js(self, record):
+        """格式化单条记录为JS对象"""
+        return f"""{{
+            date: '{record['date']}',
+            close_price: {record['close_price']},
+            rise_prob: {record['rise_prob']},
+            fall_prob: {record['fall_prob']},
+            actual: {record['actual'] or 'null'},
+            is_correct: {str(record['is_correct']).lower() if record['is_correct'] is not None else 'null'}
+        }}"""
 
     # 使用示例
 if __name__ == "__main__":
